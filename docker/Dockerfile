@@ -1,9 +1,10 @@
-FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu22.04 AS builder
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04 AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3-dev \
         python3-pip \
+        python3-venv \
         wget \
         && \
     apt-get clean && \
@@ -11,11 +12,16 @@ RUN apt-get update && \
 
 WORKDIR /root
 
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv ${VIRTUAL_ENV}
+ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
+
 ENV ONEAPI_VERSION=2025.3
-RUN wget -q https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB && \
-    apt-key add *.PUB && \
-    rm *.PUB && \
-    echo "deb https://apt.repos.intel.com/oneapi all main" > /etc/apt/sources.list.d/oneAPI.list && \
+RUN wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+    | gpg --dearmor > /usr/share/keyrings/oneapi-archive-keyring.gpg && \
+    rm -f *.PUB && \
+    echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
+    > /etc/apt/sources.list.d/oneAPI.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         intel-oneapi-mkl-devel-$ONEAPI_VERSION \
@@ -77,7 +83,7 @@ RUN cd python && \
     python3 -m pip --no-cache-dir install -r install_requirements.txt && \
     python3 setup.py bdist_wheel --dist-dir $CTRANSLATE2_ROOT
 
-FROM nvidia/cuda:12.8.1-base-ubuntu22.04
+FROM nvidia/cuda:12.8.1-base-ubuntu24.04
 
 # We remove the cuda-compat package because it conflicts with the CUDA Enhanced Compatibility.
 # See e.g. https://github.com/NVIDIA/nvidia-docker/issues/1515
@@ -86,10 +92,11 @@ RUN apt-get update && \
         libcublas-12-8=12.8.4.1-1 \
         libcudnn9-cuda-12=9.10.2.21-1 \
         libnccl2=2.26.2-1+cuda12.8 \
-        libopenmpi3=4.1.2-2ubuntu1 \
+        libopenmpi3t64 \
         openmpi-bin \
         libgomp1 \
         python3-pip \
+        python3-venv \
         && \
     apt-get purge -y cuda-compat-12-8 && \
     apt-get clean && \
@@ -97,6 +104,10 @@ RUN apt-get update && \
 
 ENV CTRANSLATE2_ROOT=/opt/ctranslate2
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CTRANSLATE2_ROOT/lib
+
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv ${VIRTUAL_ENV}
+ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
 
 COPY --from=builder $CTRANSLATE2_ROOT $CTRANSLATE2_ROOT
 RUN python3 -m pip --no-cache-dir install $CTRANSLATE2_ROOT/*.whl && \
